@@ -1,0 +1,17 @@
+name: resistome_all
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - fastp
+  - bowtie2
+  - samtools
+  - megahit
+  - bracken
+  - kraken2
+  - abricate
+  - amrfinderplus
+  - quast
+  - multiqc
+  - python=3.8

@@ -1,0 +1,88 @@
+# =============================================================================
+# Nasal Resistome Mali – Pipeline Configuration v1.3
+# Author: Alhadji A. Dicko | ICER-Mali / INRSP
+# =============================================================================
+
+samples_list: "config/samples.txt"
+raw_dir: "data/raw"
+
+# -----------------------------------------------------------------------------
+# REFERENCE DATABASES
+# -----------------------------------------------------------------------------
+host_index:   "resources/human_index/GRCh38"
+kraken2_db:   "resources/kraken2_db"
+bracken_db:   "resources/kraken2_db"
+amrfinder_db: "/Users/hadji/miniconda3/envs/resistome_env/share/amrfinderplus/data/latest"
+
+# Bracken binary (from resistome_env)
+bracken_bin: "/Users/hadji/miniconda3/envs/resistome_env/bin/bracken"
+
+# -----------------------------------------------------------------------------
+# TOOL PARAMETERS
+# -----------------------------------------------------------------------------
+fastp:
+  min_length: 50
+  qualified_quality: 20
+  threads: 4
+
+bowtie2:
+  threads: 6
+  sensitivity: "--sensitive"
+
+samtools:
+  threads: 4
+
+spades:
+  threads: 8
+  memory: 16        # GB — safe limit for MacBook
+
+quast:
+  threads: 4
+  min_contig: 200
+
+kraken2:
+  threads: 8
+  confidence: 0.1
+  min_hit_groups: 3
+
+bracken:
+  read_len: 150
+  level: "S"
+  threshold: 10
+
+amrfinder:
+  threads: 4
+  ident_min: 0.9
+  coverage_min: 0.5
+
+abricate:
+  min_id: 80
+  min_cov: 60
+
+# -----------------------------------------------------------------------------
+# CLINICAL RISK SCORE WEIGHTS
+# -----------------------------------------------------------------------------
+crs:
+  w_mdr:          0.4
+  w_hgt:          0.3
+  w_pathogen:     0.3
+  high_risk:      0.7
+  low_risk:       0.4
+  hgt_proximity_bp: 5000
+  plasmid_weight: 1.0
+  chrom_weight:   0.6
+
+# -----------------------------------------------------------------------------
+# OUTPUT DIRECTORIES
+# -----------------------------------------------------------------------------
+outdir:
+  qc:           "results/01_qc"
+  host_depl:    "results/02_host_depletion"
+  assembly:     "results/03_assembly"
+  asm_qc:       "results/04_assembly_qc"
+  taxonomy:     "results/05_taxonomy"
+  annotation:   "results/06_annotation"
+  scoring:      "results/07_scoring"
+  reports:      "results/reports"
+  logs:         "logs"
+  benchmarks:   "benchmarks"

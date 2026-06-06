@@ -1,0 +1,18 @@
+# Raw and processed sequencing data (too large for GitHub)
+data/
+results/
+resources/
+
+# Snakemake internals
+.snakemake/
+
+# Logs and benchmarks
+logs/
+benchmarks/
+
+# macOS
+.DS_Store
+
+# Conda environments
+*.conda
+envs/.snakemake_*

@@ -1,0 +1,16 @@
+name: resistome_r
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - conda-forge::r-base
+  - conda-forge::r-tidyverse
+  - conda-forge::r-data.table
+  - conda-forge::r-optparse
+  - conda-forge::r-jsonlite
+  - conda-forge::r-ggplot2
+  - conda-forge::r-pheatmap
+  - conda-forge::r-rcolorbrewer
+  - conda-forge::r-ggrepel
+  - conda-forge::r-scales

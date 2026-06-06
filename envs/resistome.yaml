@@ -1,0 +1,30 @@
+name: resistome_env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python
+  - snakemake-minimal
+  - pandas
+  - numpy
+  # QC
+  - fastp
+  - multiqc
+  # Host depletion
+  - bowtie2
+  - samtools
+  # Assembly
+  - megahit
+  # Assembly QC
+  - quast
+  # Taxonomy
+  - kraken2
+  - bracken
+  # AMR annotation
+  - ncbi-amrfinderplus
+  # Virulence / plasmid
+  - abricate
+  # Utilities
+  - pigz
+  - seqkit
