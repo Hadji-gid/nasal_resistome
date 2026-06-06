@@ -1,7 +1,21 @@
-# Nasal-Resistome-Mali Pipeline
+# Nasal-Resistome-Mali
 
 **Characterization of the Nasal Resistome and Virulome in Suspected Grippal Cases (Bamako, Mali)**
-*MSc Bioinformatics Thesis – Alhadji A. Dicko | ACE-Bamako / INSP | 2026*
+*MSc Bioinformatics Thesis – Alhadji A. Dicko | ACE-B / INSP | 2026*
+
+---
+
+## Project Overview
+
+This project provides an automated, reproducible Snakemake pipeline for analyzing
+shotgun metagenomic data from human nasal swabs. The study focuses on a cohort of
+**79 samples from Bamako, Mali**, specifically investigating:
+
+- **Taxonomic Composition:** Species-level profiling of the nasal microbiota (Kraken2 + Bracken)
+- **The Resistome:** Identification of Antimicrobial Resistance Genes (ARGs) via AMRFinderPlus (CARD)
+- **The Virulome:** Identification of virulence factors via Abricate (VFDB)
+- **Mobilization Risk:** Proximity-based HGT potential (ARG–MGE co-localization on assembled contigs)
+- **Clinical Risk Score (CRS):** Weighted composite score to stratify patients by AMR transmission risk
 
 ---
 
@@ -9,76 +23,21 @@
 
 ```
 nasal-resistome-mali/
-├── Snakefile                   ← Main workflow (all 8 steps)
+├── Snakefile                   ← Main workflow (6 steps, starts from assembly)
 ├── config/
-│   ├── config.yaml             ← All parameters and paths
-│   └── samples.txt             ← One sample ID per line
+│   ├── config.yaml             ← All parameters, paths, and weights
+│   └── samples.txt             ← One sample ID per line (79 samples)
 ├── envs/
-│   ├── resistome.yaml          ← Conda env: fastp, bowtie2, megahit, kraken2 …
-│   └── r_scoring.yaml          ← Conda env: R + tidyverse, pheatmap …
+│   ├── resistome.yaml          ← Conda env: SPAdes, Kraken2, AMRFinderPlus ...
+│   └── r_scoring.yaml          ← Conda env: R + tidyverse, pheatmap, ggrepel
 ├── scripts/
-│   ├── setup_databases.sh      ← One-time DB download helper
-│   ├── hgt_crs_scoring.R       ← HGT potential + Clinical Risk Score
-│   └── visualize.R             ← Bubble plot + ARG heatmap
-├── data/
-│   └── raw/                    ← Place raw FASTQs here: {sample}_R1/R2.fastq.gz
-└── resources/                  ← Databases built by setup_databases.sh
-    ├── human_index/
-    ├── kraken2_db/
-    └── amrfinderplus_db/
-```
-
----
-
-## Quick Start
-
-### Step 1 – Clone and set up environment
-
-```bash
-git clone https://github.com/hadji/nasal-resistome-mali.git
-cd nasal-resistome-mali
-
-# Install Mamba (faster than conda) if not already installed
-conda install -n base -c conda-forge mamba
-
-# Create environments (Snakemake will do this automatically with --use-conda,
-# but you can pre-build them manually)
-mamba env create -f envs/resistome.yaml
-mamba env create -f envs/r_scoring.yaml
-```
-
-### Step 2 – Build databases (one-time, ~4–6 hrs)
-
-```bash
-# Activate the main environment first
-conda activate resistome_env
-
-# Follow the instructions printed by this script:
-bash scripts/setup_databases.sh
-```
-
-Update all paths in `config/config.yaml` to match where databases were built.
-
-### Step 3 – Prepare your samples
-
-1. Place all raw paired FASTQ files in `data/raw/`:
-   - `data/raw/SAMPLE_001_R1.fastq.gz`
-   - `data/raw/SAMPLE_001_R2.fastq.gz`
-2. Edit `config/samples.txt` — one sample ID per line (no header, no extensions).
-
-### Step 4 – Run the pipeline
-
-```bash
-# Dry run first (checks everything without running)
-snakemake --use-conda --cores 8 --dry-run
-
-# Full run on 83 samples
-snakemake --use-conda --cores 8
-
-# Run on a cluster (SLURM example)
-snakemake --use-conda --cores 64 \
-  --cluster "sbatch -c {threads} --mem=32G -t 12:00:00" \
-  --jobs 20
+│   ├── setup_databases.sh      ← One-time database download helper
+│   ├── hgt_crs_scoring.R       ← HGT potential + Clinical Risk Score algorithm
+│   └── visualize.R             ← Bubble plot + ARG heatmap (ggplot2, pheatmap)
+└── resources/                  ← Databases (not tracked by git)
+    ├── human_index/            ← GRCh38 Bowtie2 index (host depletion)
+    ├── kraken2_db/             ← Kraken2 standard database
+    └── amrfinderplus_db/       ← AMRFinderPlus / CARD database
 ```
 
 ---
@@ -87,30 +46,74 @@ snakemake --use-conda --cores 64 \
 
 | Step | Rule | Tool(s) | Output |
 |------|------|---------|--------|
-| 1 | `fastp_trim` | fastp, MultiQC | Clean reads + QC report |
-| 2 | `host_depletion` | Bowtie2, Samtools | Microbial reads (human DNA removed) |
-| 3 | `megahit_assembly` | MEGAHIT | Assembled contigs (N50 ≥ 5,000 bp target) |
-| 4 | `quast` | QUAST | Assembly quality report |
-| 5 | `kraken2` + `bracken` | Kraken2, Bracken | Species abundance table |
-| 6a | `amrfinder` | AMRFinderPlus (CARD) | ARG annotation table |
-| 6b | `abricate_vfdb` | Abricate (VFDB) | Virulence factor table |
-| 6c | `abricate_plasmidfinder` | Abricate (PlasmidFinder) | Plasmid replicon table |
-| 7 | `hgt_and_crs_scoring` | R | `hgt_potential.csv` + `final_risk_report.csv` |
-| 8 | `visualize` | R (ggplot2, pheatmap) | Bubble plot + ARG heatmap (PDF) |
+| 1 | `spades_assembly` | metaSPAdes `--meta` | `contigs.fasta` per sample |
+| 2 | `quast` | QUAST | Assembly quality report (N50, # contigs) |
+| 3 | `kraken2` + `bracken` | Kraken2, Bracken | Species abundance table |
+| 4a | `amrfinder` | AMRFinderPlus (CARD) | ARG annotation table |
+| 4b | `abricate_vfdb` | Abricate (VFDB) | Virulence factor table |
+| 4c | `abricate_plasmidfinder` | Abricate (PlasmidFinder) | Plasmid replicon table |
+| 5 | `hgt_and_crs_scoring` | R | `hgt_potential.csv` + `final_risk_report.csv` |
+| 6 | `visualize` | R (ggplot2, pheatmap) | Bubble plot + ARG heatmap (PDF) |
+
+> **Note:** Quality control (fastp) and host depletion (Bowtie2 vs GRCh38)
+> were performed prior to this pipeline. Input files are host-depleted
+> paired-end FASTQs named `{sample}_cleaned_R1/R2.fastq.gz`.
 
 ---
 
-## Clinical Risk Score Formula
+## Quick Start
+
+### Prerequisites
+- macOS or Linux
+- Conda / Mamba
+- Snakemake ≥ 7.0
+
+### Setup
+```bash
+git clone https://github.com/Hadji-gid/nasal_resistome.git
+cd nasal_resistome
+
+# Create main environment
+conda env create -f envs/resistome.yaml
+conda activate resistome2
+
+# Build databases (one-time, see script for instructions)
+bash scripts/setup_databases.sh
+```
+
+### Run
+```bash
+# Dry run
+snakemake --cores 8 --jobs 2 --dry-run
+
+# Full run (79 samples, ~20-25 hrs on MacBook Pro)
+snakemake --cores 8 --jobs 2 --rerun-incomplete \
+          --rerun-triggers mtime --latency-wait 30
+```
+
+---
+
+## Clinical Risk Score (CRS)
 
 ```
 CRS = (0.4 × MDR_Index) + (0.3 × HGT_Potential) + (0.3 × Pathogen_Abundance)
 ```
+
+All components normalized to [0, 1] across the cohort before weighting.
 
 | Tier | CRS Range | Interpretation |
 |------|-----------|----------------|
 | **High** | > 0.7 | MDR pathogens with mobilizable resistance — alert clinician |
 | **Moderate** | 0.4 – 0.7 | ARGs present with limited mobility |
 | **Low** | < 0.4 | Predominantly commensal flora |
+
+### HGT Potential Scoring
+
+Per-ARG score based on four criteria:
+- **Co-localization:** ARG and MGE on the same contig
+- **Distance weighting:** ARG within 5 kb of an MGE (higher risk)
+- **Vehicle weighting:** Plasmid-borne (1.0) vs chromosomal (0.6)
+- **Pathogenicity flag:** Co-localized with high-priority virulence factor (+20%)
 
 ---
 
@@ -120,9 +123,17 @@ CRS = (0.4 × MDR_Index) + (0.3 × HGT_Potential) + (0.3 × Pathogen_Abundance)
 |------|-------------|
 | `results/07_scoring/final_risk_report.csv` | Per-sample CRS, risk tier, drug classes |
 | `results/07_scoring/hgt_potential.csv` | Per-sample HGT scores and co-localization counts |
-| `results/reports/crs_bubble_plot.pdf` | Bubble plot: abundance × MDR × HGT |
+| `results/reports/crs_bubble_plot.pdf` | Bubble plot: pathogen abundance × MDR × HGT potential |
 | `results/reports/arg_heatmap.pdf` | Sample × drug-class presence/absence heatmap |
-| `results/01_qc/multiqc_report.html` | Aggregated QC report for all 83 samples |
+
+---
+
+## Study Cohort
+
+- **Site:** Bamako, Republic of Mali
+- **Samples:** 79 nasal swabs from suspected grippal (ILI) cases
+- **Sequencing:** Illumina NextSeq (shotgun metagenomics)
+- **Institution:** African Center of Excellence in Bioinformatics (ACE-B) / INSP
 
 ---
 
@@ -139,4 +150,6 @@ If you use this pipeline, please cite:
 ## Contact
 
 **Alhadji A. Dicko** | alhadji-a.dicko@icermali.org
-International Center for Excellence in Research (ICER-Mali) / INRSP, Mali
+African Center of Excellence in Bioinformatics (ACE-B) / INSP, Mali
+
+*Project Status: In Progress – 2026*
