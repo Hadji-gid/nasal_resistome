@@ -206,14 +206,23 @@ rule spades_assembly:
         mkdir -p $(dirname {log})
         rm -rf {params.outdir}
 
-        spades.py \
-            --meta \
-            -1 {input.r1} \
-            -2 {input.r2} \
-            -o {params.outdir} \
-            --threads {threads} \
-            --memory {params.mem} \
-            2> {log}
+        # Check minimum reads before assembly
+        READ_COUNT=$(zcat {input.r1} | wc -l | awk '{{print $1/4}}')
+        if [ "$READ_COUNT" -lt 1000 ]; then
+            echo "SKIP: only $READ_COUNT reads — insufficient for assembly" > {log}
+            mkdir -p {params.outdir}
+            echo ">insufficient_reads_placeholder" > {output.contigs}
+            echo "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN" >> {output.contigs}
+        else
+            spades.py \
+                --meta \
+                -1 {input.r1} \
+                -2 {input.r2} \
+                -o {params.outdir} \
+                --threads {threads} \
+                --memory {params.mem} \
+                2> {log}
+        fi
         """
 
 

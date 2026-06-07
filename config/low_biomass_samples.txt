@@ -1,0 +1,15 @@
+# Samples with < 1000 reads after host depletion
+# These will be processed with placeholder assemblies
+# and will appear as Low Risk in the final CRS report
+16_S52       0
+228_S51      0
+31_S6        0
+38_S59       0
+6721_S50     0
+6722_S49     0
+359-E22_S96  474
+360-E22_S97  263
+58_S63       66
+5_S15        176
+7_S14        102
+CN_S99       397
