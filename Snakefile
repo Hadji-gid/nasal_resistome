@@ -275,7 +275,7 @@ rule kraken2:
         r2 = rules.host_depletion.output.r2,
     output:
         report = f"{D['taxonomy']}/{{sample}}/{{sample}}_kraken2_report.txt",
-        out    = temp(f"{D['taxonomy']}/{{sample}}/{{sample}}_kraken2_output.txt"),
+        out    = f"{D['taxonomy']}/{{sample}}/{{sample}}_kraken2_output.txt",
     params:
         db         = config["kraken2_db"],
         confidence = config["kraken2"]["confidence"],
