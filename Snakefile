@@ -295,7 +295,11 @@ rule kraken2:
             --minimum-hit-groups {params.min_hits} \
             --gzip-compressed \
             --threads {threads} \
-            2> {log}
+            2> {log} || true
+
+        # Create empty outputs for zero-read samples
+        [ -f {output.report} ] || touch {output.report}
+        [ -f {output.out} ]    || touch {output.out}
         """
 
 rule bracken:
@@ -328,7 +332,11 @@ rule bracken:
             -r {params.read_len} \
             -l {params.level} \
             -t {params.threshold} \
-            2> {log}
+            2> {log} || true
+
+        # Create empty outputs for zero-read samples
+        [ -f {output.bracken} ] || touch {output.bracken}
+        [ -f {output.report} ]  || touch {output.report}
         """
 
 
