@@ -215,13 +215,15 @@ rule spades_assembly:
             echo "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN" >> {output.contigs}
         else
             spades.py \
-                --meta \
-                -1 {input.r1} \
-                -2 {input.r2} \
-                -o {params.outdir} \
-                --threads {threads} \
-                --memory {params.mem} \
-                2> {log}
+            --meta \
+            -1 {input.r1} \
+            -2 {input.r2} \
+            -o {params.outdir} \
+            --threads {threads} \
+            --memory {params.mem} \
+            -k 21,33,55,77 \
+            --cov-cutoff auto \
+            2> {log}
         fi
         """
 
