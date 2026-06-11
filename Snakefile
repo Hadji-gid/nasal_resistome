@@ -222,7 +222,6 @@ rule spades_assembly:
             --threads {threads} \
             --memory {params.mem} \
             -k 21,33,55,77 \
-            --cov-cutoff auto \
             2> {log}
         fi
         """
