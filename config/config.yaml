@@ -34,7 +34,7 @@ samtools:
 
 spades:
   threads: 8
-  memory: 16        # GB — safe limit for MacBook
+  memory: 28        # GB — safe limit for MacBook
 
 quast:
   threads: 4
