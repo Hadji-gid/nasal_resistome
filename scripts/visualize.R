@@ -1,11 +1,12 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# visualize.R
+# visualize.R  v1.1
 # Generates two publication-quality figures:
 #   1. Bubble plot  – taxon abundance vs MDR index, bubble = HGT potential
-#   2. ARG heatmap  – sample × drug-class matrix annotated with CRS tier
+#   2. ARG heatmap  – sample x drug-class matrix annotated with CRS tier
 #
-# Author : Alhadji A. Dicko | ICER-Mali / INRSP
+# Author : Alhadji A. Dicko | ACE-B / INSP Mali
+# Fix    : flexible drug_class column detection for AMRFinder output
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -32,22 +33,18 @@ safe_read <- function(path, ...) {
 }
 
 # ── Load risk report ──────────────────────────────────────────────────────────
-risk <- read_csv(risk_path, show_col_types = FALSE)
+risk <- read_csv(risk_path, show_col_types = FALSE) %>%
+  mutate(risk_tier = factor(risk_tier, levels = c("High", "Moderate", "Low")))
 
 TIER_COLORS <- c(High = "#C0392B", Moderate = "#E67E22", Low = "#27AE60")
 
 # =============================================================================
 # FIGURE 1 – BUBBLE PLOT
-# x-axis : pathogen_abundance_raw (relative abundance of priority pathogens)
-# y-axis : n_drug_classes           (MDR Index)
-# bubble : hgt_norm                 (HGT Potential, normalized [0,1])
-# color  : risk_tier
 # =============================================================================
 message("[Viz] Creating bubble plot ...")
 
 bubble_data <- risk %>%
   mutate(
-    risk_tier = factor(risk_tier, levels = c("High", "Moderate", "Low")),
     bubble_size = rescale(hgt_norm, to = c(2, 14)),
     label = if_else(risk_tier == "High", sample, NA_character_)
   )
@@ -68,9 +65,9 @@ p_bubble <- ggplot(bubble_data,
   scale_y_continuous(breaks = pretty_breaks(),
                      name = "MDR Index (# Antibiotic Drug Classes)") +
   labs(
-    title    = "Clinical Risk Landscape – Nasal Resistome (Bamako, Mali, n=83)",
+    title    = "Clinical Risk Landscape - Nasal Resistome (Bamako, Mali, n=78)",
     subtitle = "Bubble size = HGT Potential  |  Color = CRS Risk Tier  |  Labels on High-Risk samples",
-    caption  = "Dicko AA (2026). MSc Bioinformatics Thesis, INSP Mali."
+    caption  = "Dicko AA (2026). MSc Bioinformatics Thesis, ACE-B / INSP Mali."
   ) +
   theme_bw(base_size = 12) +
   theme(
@@ -86,23 +83,30 @@ message("[Viz] Bubble plot saved.")
 
 # =============================================================================
 # FIGURE 2 – ARG HEATMAP
-# Rows    : antibiotic drug classes
-# Columns : samples (ordered by CRS)
-# Fill    : presence / absence (binary) or number of distinct ARGs
-# Annotation bar: CRS risk tier per sample
 # =============================================================================
 message("[Viz] Creating ARG heatmap ...")
 
-# Build sample × drug-class matrix from AMRFinder outputs
+# Build sample x drug-class matrix from AMRFinder outputs
 amr_list <- map(samples, function(s) {
-  f <- file.path(ann_dir, s, "amrfinder.tsv")
+  f  <- file.path(ann_dir, s, "amrfinder.tsv")
   df <- safe_read(f)
   if (is.null(df) || nrow(df) == 0) return(NULL)
-  df %>%
+
+  # Standardize column names
+  df <- df %>%
     rename_with(~ gsub(" ", "_", .x)) %>%
-    rename_with(tolower) %>%
-    select(drug_class = contains("class")) %>%
-    filter(!is.na(drug_class)) %>%
+    rename_with(tolower)
+
+  # Find the drug class column flexibly (exact match preferred)
+  class_col <- grep("^class$", names(df), value = TRUE)[1]
+  if (is.na(class_col)) class_col <- grep("^drug_class$", names(df), value = TRUE)[1]
+  if (is.na(class_col)) class_col <- grep("class", names(df), value = TRUE)[1]
+
+  if (is.na(class_col)) return(NULL)
+
+  df %>%
+    select(drug_class = all_of(class_col)) %>%
+    filter(!is.na(drug_class), drug_class != "") %>%
     distinct() %>%
     mutate(sample = s, present = 1L)
 }) %>% bind_rows()
@@ -129,7 +133,8 @@ if (!is.null(amr_list) && nrow(amr_list) > 0) {
 
   ann_colors <- list(`Risk Tier` = TIER_COLORS)
 
-  pdf(snakemake@output$heatmap, width = max(12, ncol(mat) * 0.18 + 4), height = 8)
+  pdf(snakemake@output$heatmap,
+      width = max(12, ncol(mat) * 0.18 + 4), height = 8)
   pheatmap(
     mat,
     color             = c("#F7F7F7", "#2166AC"),
@@ -137,11 +142,11 @@ if (!is.null(amr_list) && nrow(amr_list) > 0) {
     annotation_col    = ann_col,
     annotation_colors = ann_colors,
     cluster_rows      = TRUE,
-    cluster_cols      = FALSE,      # keep CRS order
+    cluster_cols      = FALSE,
     fontsize_row      = 9,
     fontsize_col      = 6,
     border_color      = "grey85",
-    main              = "ARG Drug-Class Matrix (Bamako Cohort, n=83)\nOrdered by CRS (High → Low)",
+    main              = "ARG Drug-Class Matrix (Bamako Cohort, n=78)\nOrdered by CRS (High to Low)",
     legend_breaks     = c(0, 1),
     legend_labels     = c("Absent", "Present"),
     silent            = TRUE
@@ -150,10 +155,10 @@ if (!is.null(amr_list) && nrow(amr_list) > 0) {
   message("[Viz] ARG heatmap saved.")
 
 } else {
-  # Write empty placeholder so Snakemake output is satisfied
+  # Placeholder if no ARGs detected
   pdf(snakemake@output$heatmap)
   plot.new()
-  text(0.5, 0.5, "No ARG data available.", cex = 1.5)
+  text(0.5, 0.5, "No ARGs detected across cohort.", cex = 1.5)
   dev.off()
-  message("[Viz] No ARG data – placeholder heatmap written.")
+  message("[Viz] No ARG data - placeholder heatmap written.")
 }
