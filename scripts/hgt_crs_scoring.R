@@ -1,13 +1,9 @@
 #!/usr/bin/env Rscript
 # =============================================================================
-# hgt_crs_scoring.R
+# hgt_crs_scoring.R  v1.1
 # HGT Potential scoring + Clinical Risk Score (CRS) calculation
-# Author : Alhadji A. Dicko | ICER-Mali / INRSP
-#
-# Called by Snakemake rule: hgt_and_crs_scoring
-# Inputs  : snakemake@params  (ann_dir, tax_dir, proximity, weights, etc.)
-# Outputs : snakemake@output$hgt   – per-sample HGT scores
-#           snakemake@output$risk  – final CRS report
+# Author : Alhadji A. Dicko | ACE-B / INSP Mali
+# Fix    : include all hgt_results columns in final join
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -25,25 +21,17 @@ safe_read <- function(path, ...) {
 ann_dir    <- snakemake@params$ann_dir
 tax_dir    <- snakemake@params$tax_dir
 out_dir    <- snakemake@params$out_dir
-proximity  <- as.integer(snakemake@params$proximity)   # 5000 bp
-w_plasmid  <- as.numeric(snakemake@params$w_plasmid)   # 1.0
-w_chrom    <- as.numeric(snakemake@params$w_chrom)     # 0.6
-w_mdr      <- as.numeric(snakemake@params$w_mdr)       # 0.4
-w_hgt      <- as.numeric(snakemake@params$w_hgt)       # 0.3
-w_pathogen <- as.numeric(snakemake@params$w_pathogen)  # 0.3
-high_thresh<- as.numeric(snakemake@params$high_risk)   # 0.7
-low_thresh <- as.numeric(snakemake@params$low_risk)    # 0.4
+proximity  <- as.integer(snakemake@params$proximity)
+w_plasmid  <- as.numeric(snakemake@params$w_plasmid)
+w_chrom    <- as.numeric(snakemake@params$w_chrom)
+w_mdr      <- as.numeric(snakemake@params$w_mdr)
+w_hgt      <- as.numeric(snakemake@params$w_hgt)
+w_pathogen <- as.numeric(snakemake@params$w_pathogen)
+high_thresh<- as.numeric(snakemake@params$high_risk)
+low_thresh <- as.numeric(snakemake@params$low_risk)
 samples    <- strsplit(snakemake@params$samples, ",")[[1]]
 
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-
-# ── High-priority virulence categories (VFDB Category A pathogen list) ───────
-HIGH_PRIORITY_VF <- c(
-  "Staphylococcus aureus", "Streptococcus pneumoniae",
-  "Klebsiella pneumoniae", "Acinetobacter baumannii",
-  "Pseudomonas aeruginosa", "Escherichia coli",
-  "Haemophilus influenzae", "Moraxella catarrhalis"
-)
 
 # =============================================================================
 # SECTION 1 – HGT POTENTIAL SCORING
@@ -53,12 +41,10 @@ message("[HGT Scoring] Processing ", length(samples), " samples ...")
 hgt_results <- map_dfr(samples, function(s) {
   message("  -> ", s)
 
-  # Load annotation tables
-  amr <- safe_read(file.path(ann_dir, s, "amrfinder.tsv"))
+  amr  <- safe_read(file.path(ann_dir, s, "amrfinder.tsv"))
   vfdb <- safe_read(file.path(ann_dir, s, "abricate_vfdb.tsv"))
   plas <- safe_read(file.path(ann_dir, s, "abricate_plasmidfinder.tsv"))
 
-  # If no ARGs detected, return zero score
   if (is.null(amr) || nrow(amr) == 0) {
     return(tibble(
       sample = s, n_args = 0L, n_mges = 0L,
@@ -69,41 +55,62 @@ hgt_results <- map_dfr(samples, function(s) {
   }
 
   # Standardize AMRFinder column names
-  # AMRFinder output cols: Name, Protein id, Contig id, Start, Stop, Strand,
-  #                        Gene symbol, Sequence name, Scope, Element type,
-  #                        Element subtype, Class, Subclass, Method, ...
   amr <- amr %>%
     rename_with(~ gsub(" ", "_", .x)) %>%
-    rename_with(tolower) %>%
-    rename(contig_id = contains("contig"), start = start, stop = stop,
-           drug_class = class) %>%
-    mutate(start = as.integer(start), stop = as.integer(stop),
-           arg_mid = (start + stop) / 2)
+    rename_with(tolower)
+
+  # Find contig, start, stop, class columns flexibly
+  contig_col <- grep("contig", names(amr), value = TRUE)[1]
+  start_col  <- grep("^start$", names(amr), value = TRUE)[1]
+  stop_col   <- grep("^stop$", names(amr), value = TRUE)[1]
+  class_col  <- grep("^class$", names(amr), value = TRUE)[1]
+  if (is.na(class_col)) class_col <- grep("class", names(amr), value = TRUE)[1]
+
+  if (is.na(contig_col)) {
+    return(tibble(
+      sample = s, n_args = nrow(amr), n_mges = 0L,
+      n_colocalized = 0L, n_proximal = 0L,
+      n_plasmid_borne = 0L, n_vf_colocalized = 0L,
+      hgt_raw = 0, hgt_potential = 0
+    ))
+  }
+
+  amr <- amr %>%
+    rename(contig_id = all_of(contig_col)) %>%
+    mutate(
+      start   = as.integer(.data[[start_col]]),
+      stop    = as.integer(.data[[stop_col]]),
+      arg_mid = (start + stop) / 2
+    )
 
   # Plasmid-positive contigs
   plasmid_contigs <- character(0)
+  mge_positions   <- tibble(contig_id = character(), mge_mid = numeric())
   if (!is.null(plas) && nrow(plas) > 0) {
     plas <- plas %>% rename_with(tolower)
-    plasmid_contigs <- unique(plas$sequence)
+    seq_col   <- grep("sequence|contig", names(plas), value = TRUE)[1]
+    start_p   <- grep("^start$", names(plas), value = TRUE)[1]
+    end_p     <- grep("^end$|^stop$", names(plas), value = TRUE)[1]
+    if (!is.na(seq_col)) {
+      plasmid_contigs <- unique(plas[[seq_col]])
+      if (!is.na(start_p) && !is.na(end_p)) {
+        mge_positions <- plas %>%
+          mutate(mge_mid = (as.integer(.data[[start_p]]) + as.integer(.data[[end_p]])) / 2) %>%
+          select(contig_id = all_of(seq_col), mge_mid)
+      }
+    }
   }
 
-  # MGE positions from PlasmidFinder (use contig midpoint as MGE anchor)
-  mge_positions <- tibble(contig_id = character(), mge_mid = numeric())
-  if (!is.null(plas) && nrow(plas) > 0) {
-    mge_positions <- plas %>%
-      mutate(mge_mid = (as.integer(start) + as.integer(end)) / 2) %>%
-      select(contig_id = sequence, mge_mid)
-  }
-
-  # VFDB high-priority contigs
+  # VF contigs
   vf_contigs <- character(0)
   if (!is.null(vfdb) && nrow(vfdb) > 0) {
     vfdb <- vfdb %>% rename_with(tolower)
-    vf_contigs <- unique(vfdb$sequence)
+    seq_col_v <- grep("sequence|contig", names(vfdb), value = TRUE)[1]
+    if (!is.na(seq_col_v)) vf_contigs <- unique(vfdb[[seq_col_v]])
   }
 
-  n_args       <- nrow(amr)
-  n_mges       <- nrow(mge_positions)
+  n_args        <- nrow(amr)
+  n_mges        <- nrow(mge_positions)
   n_colocalized <- 0L
   n_proximal    <- 0L
   n_plasmid_borne <- 0L
@@ -114,34 +121,27 @@ hgt_results <- map_dfr(samples, function(s) {
     arg_contig <- amr$contig_id[i]
     arg_pos    <- amr$arg_mid[i]
 
-    # ── Vehicle weight: plasmid (1.0) vs chromosomal (0.6) ──────────────────
     vehicle_w <- if (arg_contig %in% plasmid_contigs) w_plasmid else w_chrom
     if (arg_contig %in% plasmid_contigs) n_plasmid_borne <- n_plasmid_borne + 1L
 
-    # ── Co-localization: same contig as any MGE ──────────────────────────────
-    mge_same_contig <- mge_positions %>% filter(contig_id == arg_contig)
-    colocalized <- nrow(mge_same_contig) > 0
+    mge_same <- mge_positions %>% filter(contig_id == arg_contig)
+    colocalized <- nrow(mge_same) > 0
     if (colocalized) n_colocalized <- n_colocalized + 1L
 
-    # ── Distance weighting: within proximity bp of closest MGE ───────────────
     dist_w <- 0
     if (colocalized) {
-      min_dist <- min(abs(mge_same_contig$mge_mid - arg_pos))
+      min_dist <- min(abs(mge_same$mge_mid - arg_pos))
       dist_w   <- if (min_dist <= proximity) 1.0 else max(0, 1 - min_dist / (proximity * 2))
       if (min_dist <= proximity) n_proximal <- n_proximal + 1L
     }
 
-    # ── Pathogenicity flag: co-localized with high-priority VF ───────────────
-    vf_flag <- if (arg_contig %in% vf_contigs) 1.2 else 1.0  # 20 % boost
+    vf_flag <- if (arg_contig %in% vf_contigs) 1.2 else 1.0
     if (arg_contig %in% vf_contigs) n_vf_coloc <- n_vf_coloc + 1L
 
-    # ── Per-ARG contribution to HGT score ────────────────────────────────────
-    arg_score <- vehicle_w * dist_w * vf_flag
-    hgt_score_sum <- hgt_score_sum + arg_score
+    hgt_score_sum <- hgt_score_sum + vehicle_w * dist_w * vf_flag
   }
 
-  # Normalise raw score to [0, 1] per sample (proportion of max possible)
-  max_possible <- n_args * w_plasmid * 1.0 * 1.2  # all plasmid, proximal, VF
+  max_possible  <- n_args * w_plasmid * 1.0 * 1.2
   hgt_potential <- if (max_possible > 0) min(1, hgt_score_sum / max_possible) else 0
 
   tibble(
@@ -177,40 +177,32 @@ mdr_results <- map_dfr(samples, function(s) {
     rename_with(~ gsub(" ", "_", .x)) %>%
     rename_with(tolower)
 
-  # Drug class column is "Class" in AMRFinder output
   class_col <- grep("^class$", names(amr), value = TRUE)[1]
   if (is.na(class_col)) class_col <- grep("class", names(amr), value = TRUE)[1]
 
-  classes    <- unique(na.omit(amr[[class_col]]))
-  n_classes  <- length(classes)
-  mdr_flag   <- n_classes >= 3   # MDR = resistance to >= 3 drug classes
+  classes   <- unique(na.omit(amr[[class_col]]))
+  n_classes <- length(classes)
 
   tibble(
     sample         = s,
     n_drug_classes = n_classes,
-    mdr_flag       = mdr_flag,
+    mdr_flag       = n_classes >= 3,
     drug_classes   = paste(sort(classes), collapse = "; "),
     mdr_index_raw  = n_classes
   )
 })
 
 # =============================================================================
-# SECTION 3 – PATHOGEN ABUNDANCE  (from Bracken)
+# SECTION 3 – PATHOGEN ABUNDANCE
 # =============================================================================
 message("[Pathogen Abundance] Calculating ...")
 
-# WHO/ESKAPE priority pathogens relevant to nasal resistome
 PRIORITY_PATHOGENS <- c(
-  "Staphylococcus aureus",
-  "Streptococcus pneumoniae",
-  "Haemophilus influenzae",
-  "Moraxella catarrhalis",
-  "Klebsiella pneumoniae",
-  "Acinetobacter baumannii",
-  "Pseudomonas aeruginosa",
-  "Escherichia coli",
-  "Enterococcus faecalis",
-  "Enterococcus faecium",
+  "Staphylococcus aureus", "Streptococcus pneumoniae",
+  "Haemophilus influenzae", "Moraxella catarrhalis",
+  "Klebsiella pneumoniae", "Acinetobacter baumannii",
+  "Pseudomonas aeruginosa", "Escherichia coli",
+  "Enterococcus faecalis", "Enterococcus faecium",
   "Staphylococcus epidermidis"
 )
 
@@ -223,8 +215,6 @@ pathogen_results <- map_dfr(samples, function(s) {
                   top_pathogen = NA_character_, n_priority_taxa = 0L))
   }
 
-  # Bracken output: name, taxonomy_id, taxonomy_lvl, kraken_assigned_reads,
-  #                 added_reads, new_est_reads, fraction_total_reads
   brac <- brac %>% rename_with(tolower)
   frac_col <- grep("fraction", names(brac), value = TRUE)[1]
 
@@ -232,13 +222,10 @@ pathogen_results <- map_dfr(samples, function(s) {
     filter(name %in% PRIORITY_PATHOGENS) %>%
     arrange(desc(.data[[frac_col]]))
 
-  total_path_fraction <- sum(path_rows[[frac_col]], na.rm = TRUE)
-  top_pathogen <- if (nrow(path_rows) > 0) path_rows$name[1] else NA_character_
-
   tibble(
     sample                = s,
-    pathogen_abundance_raw= round(total_path_fraction, 4),
-    top_pathogen          = top_pathogen,
+    pathogen_abundance_raw= round(sum(path_rows[[frac_col]], na.rm = TRUE), 4),
+    top_pathogen          = if (nrow(path_rows) > 0) path_rows$name[1] else NA_character_,
     n_priority_taxa       = nrow(path_rows)
   )
 })
@@ -254,25 +241,20 @@ normalize_01 <- function(x) {
   (x - rng[1]) / diff(rng)
 }
 
-# Merge all components
+# Merge ALL hgt columns (not just hgt_potential)
 combined <- mdr_results %>%
-  left_join(hgt_results %>% select(sample, hgt_potential), by = "sample") %>%
+  left_join(hgt_results, by = "sample") %>%
   left_join(pathogen_results, by = "sample") %>%
   mutate(
-    # Normalise raw values across the cohort
     mdr_norm      = normalize_01(mdr_index_raw),
-    hgt_norm      = hgt_potential,   # already [0,1]
+    hgt_norm      = hgt_potential,
     pathogen_norm = normalize_01(pathogen_abundance_raw),
-
-    # Weighted CRS
     crs = round(
       w_mdr      * mdr_norm +
       w_hgt      * hgt_norm +
       w_pathogen * pathogen_norm,
       4
     ),
-
-    # Risk tier
     risk_tier = case_when(
       crs > high_thresh ~ "High",
       crs >= low_thresh ~ "Moderate",
@@ -282,13 +264,14 @@ combined <- mdr_results %>%
   ) %>%
   arrange(desc(crs))
 
-# Write final report
+# Write final report — all columns now available
 final_report <- combined %>%
   select(
     sample, crs, risk_tier,
     mdr_norm, n_drug_classes, mdr_flag, drug_classes,
-    hgt_norm = hgt_potential, n_args, n_colocalized, n_proximal,
-    n_plasmid_borne, n_vf_colocalized,
+    hgt_norm = hgt_potential,
+    n_args, n_mges, n_colocalized, n_proximal,
+    n_plasmid_borne, n_vf_colocalized, hgt_raw,
     pathogen_norm, pathogen_abundance_raw,
     top_pathogen, n_priority_taxa
   )
@@ -296,7 +279,6 @@ final_report <- combined %>%
 write_csv(final_report, snakemake@output$risk)
 message("[CRS] Written to ", snakemake@output$risk)
 
-# Quick cohort summary to log
 message("\n=== Cohort Summary ===")
 message("Total samples : ", nrow(final_report))
 message("High Risk     : ", sum(final_report$risk_tier == "High"))
