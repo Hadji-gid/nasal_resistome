@@ -1,0 +1,15 @@
+title: "Nasal Resistome Mali - Multi-Sample QC Report"
+subtitle: "78 samples - Bamako, Mali - ACE-B/INSP 2026"
+intro_text: "Aggregated quality control, taxonomic profiling, and resistome annotation across the full cohort."
+
+module_order:
+  - fastp
+  - kraken
+  - quast
+
+extra_fn_clean_exts:
+  - "_kraken2_report"
+  - "_R1_clean"
+  - "_R2_clean"
+
+show_analysis_paths: false
