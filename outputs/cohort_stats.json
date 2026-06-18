@@ -1,0 +1,30 @@
+{
+  "total_samples": 78,
+  "samples_with_args": 33,
+  "samples_mdr": 24,
+  "total_unique_drug_classes": 17,
+  "samples_with_vf": 20,
+  "total_vf_hits": 708,
+  "top_vf_categories": [
+    "Immune modulation",
+    "Adherence",
+    "Effector delivery system",
+    "Nutritional/Metabolic factor",
+    "Motility"
+  ],
+  "top_vf_genes": [
+    "esaG",
+    "gmhA/lpcA",
+    "hld",
+    "lpxA",
+    "ompA",
+    "rcsB",
+    "fur",
+    "pilT",
+    "galU",
+    "galE"
+  ],
+  "high_risk": 0,
+  "moderate_risk": 2,
+  "low_risk": 76
+}
